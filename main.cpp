@@ -3,38 +3,60 @@
 #include <string>
 #include <algorithm>
 
-void m_callback(int event, int x, int y, int flags, void* param);
-
-cv::Rect box;
-bool drawing_box = false;
-
-void draw_box(cv::Mat& img, cv::Rect box){
-    cv::rectangle(img, box.tl(), box.br(), cv::Scalar(0x00,0x00,0xff));
-}
-
-void crop_box(cv::Mat& bg_image, cv::Mat& fg_image, cv::Rect box){
-    cv::Mat temp = fg_image(box);
-    temp.copyTo(bg_image);
-}
-
 cv::Mat hfitted_output(std::vector<cv::Mat> &images){
         const std::vector<cv::Mat>::iterator min_img = 
         std::min_element(images.begin(), images.end(),
             [](const cv::Mat& im1, const cv::Mat& im2){return im1.size[0] < im2.size[0];}
         );
 
-        const auto resize = [&min_img](cv::Mat& im){
-            cv::resize(im, im, cv::Size(im.size[1] * min_img->size[0] / im.size[0],min_img->size[0]));
+        const auto resize = [](cv::Mat& im){
+            cv::resize(im, im, cv::Size(150,150));
         };
 
         std::for_each(images.begin(), images.end(), resize);
 
         cv::Mat result = *images.begin();
 
-        for(auto it = images.begin()+1; it != images.end(); ++it){
+        for(auto it = images.begin(); it != images.end(); ++it){
             cv::hconcat(result, *it, result);
         }
         return result;
+}
+
+class Interface(){
+private:
+    cv::Mat foreground;
+    cv::Mat background;
+    cv::Mat dispForeground;
+    cv::Mat dispBackground;
+    cv::Rect copiedArea;
+    int x1, y1, x2, y2;
+public:
+    Interface(cv::Mat& fg, cv::Mat& bg){
+        foreground = fg.clone();
+        background = bg.clone();
+        dispForeground = fg.clone();
+        background = bg.clone();
+        std::cout << "help: " << std::endl << " c = copy, p = paste, r = return " << std::endl;
+        cv::namedWindow("window");
+    }
+
+    void startHandler(){
+        while(true){
+            unsigned int key = cv::waitKey(15);
+            if(key == 27) return;
+            if(key == 99) copyArea();
+            if(key == 112) pasteArea();
+            if(key == 114) bringBack();
+        }
+    }
+
+    void aim(cv::Mat& disp, cv::Mat& ground){
+        std::cout << "input coords: x in (0," << ground.shape[1] << "), y in (0," 
+                << ground.shape[0] << ")" << std::endl;
+        disp = ground;
+        copiedArea = cv::Rect(cv::Point(x1,y1),cv::Point(x2,y2));
+    }
 }
 
 int main(int argc, const char** argv) {
@@ -46,13 +68,11 @@ int main(int argc, const char** argv) {
         system("pause");
         return -1;
     }
-
+    temp = fg_img.clone();
     const std::string winName = "Image Window";
     cv::namedWindow(winName);
-    cv::setMouseCallback(winName, m_callback, (void*)&fg_img);
 
     while(true){
-        fg_img.copyTo(temp);
         if(drawing_box) draw_box(temp,box);
         std::vector<cv::Mat> images{temp, bg_img};
         cv::imshow(winName,hfitted_output(images));
@@ -62,36 +82,4 @@ int main(int argc, const char** argv) {
     return 0;
 }
 
-void m_callback(int event, int x, int y, int flags, void* param){
-    cv::Mat& image = *(cv::Mat*) param;
-    switch(event){
-        case cv::EVENT_MOUSEMOVE:{
-            if(drawing_box){
-                box.width = x - box.x;
-                box.height = y - box.y;
-            }
-        }
-        break;
-
-        case cv::EVENT_LBUTTONDOWN:{
-            drawing_box = true;
-            box = cv::Rect(x,y,0,0);
-        }
-        break;
-
-        case cv::EVENT_LBUTTONUP:{
-            drawing_box = false;
-            if(box.width < 0){
-                box.x += box.width;
-                box.width *= -1;
-            }
-            if(box.height < 0){
-                box.y += box.height;
-                box.height *= -1;
-            }
-            draw_box(image, box);
-        }
-        break;
-    }
-}
 
