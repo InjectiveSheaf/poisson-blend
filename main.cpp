@@ -35,67 +35,48 @@ cv::Mat hfit(std::vector<cv::Mat> &images){
  * суммируя результаты функций getRightSum и getGradient для каждой строки.
  */
 
-class PoissonSolver{ // Для одного канала, в интерфейсе получим для всех трёх и сложим
+class Poisson{ // Для одного канала, в интерфейсе получим для всех трёх и сложим
 private:
-    Eigen::Matrix Omega;
-    Eigen::Matrix S;
-    unsigned int p; // количество пикселей в накладываемом изображении
-    
-    struct Neighbourhood{
-        int left, right, bottom, top;
-        Neighbourhood(int x, int y){
-            left = x-1 + y*Omega.rows();
-            right = x+1 + y*Omega.rows();
-            top = (y+1)*Omega.rows() + x;
-            botton = (y-1)*Omega.rows() + x;
-        }
-        bool isNeighbour(int a, int b){
-            int position = a + b*Omega.rows();
-            if(position == left || position == right || position == top || position == bottom) return true;
-            else return false;
-        }
-    };
-
-    double getRightSum(int x, int y){
-        double Sum = 0;
-        for(int dx = -1; dx <= 1; dx++)
-            for(int dy = -1; dy <= 1; dy++)
-                Sum += S(x+dx,y+dx);
-        Sum += (Omega(x+1,y) - Omega(x-1,y))/2;
-        Sum += (Omega(x,y+1) - Omega(x,y-1))/2;
-        return Sum;
-    }
-
-    Eigen::Vector getMatrixRow(int x, int y){
-        Eigen::Vector row = Eigen::Vector::Zero(p);
-        row(y*Omega.rows() + x) = 4;
-        for(int dx = -1; dx <= 1; dx++)
-            for(int dy = -1; dy <= 1; dy++)
-                if(Neighbourhood(x,y).isNeighbour(x+dx,y+dy)) row((y+dy)*Omega.rows()+x+dx) = -1;
-    }
+    Eigen::Matrix Omega; // Omega \in S 
+    Eigen::Matrix S; 
 public:
 /* Для того, чтобы пользоваться в дальнейшем произвольными формами, а не только прямоугольниками
- * Используем следующее(не оптимизированное) представление через маску:
- * 1. Omega = 0 там, где мы её не знаем,
+ * Используем представление через маску:
+ * 1. Omega = 0 вне области вставки
  * 2. Для удобства предполагаем, что dim(Omega) = dim(S).
  */ 
-    PoissonSolver(Eigen::Matrix& omega, Eigen::Mat& s){
-        Omega = omega;
-        S = s;
-        p = Omega.cols()*Omega.rows();
+
+    Poisson();
+    void loadMatrices(Eigen::Matrix &_Omega, Eigen::Matrix &_S){
+        Omega = _Omega;
+        S = _S;
     }
 
-    Eigen::Matrix getResult(){
-        // Будущие левая и правая часть
-        Eigen::Matrix A = Eigen::Matrix::Zero(p,p); 
-        Eigen::Vector b = Eigen::Vector::Zero(p);
+    Eigen::Matrix solve(){ 
+        k = Omega.size() - std::count(auto x : Omega.reshaped(), 0); // количество пикселей
+        Eigen::Matrix<double,k,k> A;
+        Eigen::Vector<double,k> b;
+        std::unordered_map<cv::Point, double> f; // f: Omega -> R
+        // Заполняем наше отображение
         for(int x = 0; x < Omega.cols(); x++){
             for(int y = 0; y < Omega.rows(); y++){
-                Eigen::Vector row = Eigen::Vector::Zero(p);
-                double right
-                if(Omega(x,y) != 0){
-                Eigen::Vector row = Eigen::Vector::Zero(p);
-                row[p]
+                if(Omega(x,y) == 0) continue; // нас не интересует, мы работаем с неизвестными пикселями
+                else f[cv::Point(x,y)] = Omega(x,y);
+            }
+        }
+        // Теперь составим для каждого пикселя уравнение и решим СЛАУ
+        for(const auto &[p,p_val]: f){ // p имеет тип cv::Point
+            Eigen::vector<double,k> lhs;
+            double rhs;
+            for(const auto &[q,q_val]: f){ 
+            // Так как мы не меняем f, порядок обхода сохраняется и СЛАУ правильно составится 
+                if(isNeighbour(q,p) && f.count(q)) v << -1; // Коэффициенты для соседей в пересечении с Omega
+                if(q = p) v << 4; // Пиксель, который мы смотрим
+                else v << 0; // Все остальные
+            }
+            for(const auto &[q,q_val]: f){
+                if(isNeighbour(q,p) && !f.count(q)){
+                    right += S(q.first.x,q.first.y);
                 }
             }
         }
