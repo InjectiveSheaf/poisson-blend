@@ -2,6 +2,7 @@
 #include "opencv2/opencv.hpp"
 #include <string>
 #include <algorithm>
+#include "eigen3/Eigen/Core"
 
 cv::Mat hfit(std::vector<cv::Mat> &images){
         const std::vector<cv::Mat>::iterator min_img = 
