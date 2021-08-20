@@ -54,8 +54,9 @@ public:
     void aim(cv::Mat& disp, cv::Mat& ground){
         std::cout << "input coords: x in (0," << ground.size[1] << "), y in (0," 
                 << ground.size[0] << ")" << std::endl;
+        std::cin >> x1 >> y1 >> x2 >> y2;
         disp = ground.clone();
-        cv::rectangle(disp, cv::Rect(cv::Point(x1,y1), cv::Point(x2,y2)), (0,255,0));
+        cv::rectangle(disp, cv::Rect(cv::Point(x1,y1), cv::Point(x2,y2)), cv::Scalar(0,255,0));
     }
 
     void selectClone(){
