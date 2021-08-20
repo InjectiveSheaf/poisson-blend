@@ -29,7 +29,6 @@ private:
     cv::Mat background;
     cv::Mat dispForeground;
     cv::Mat dispBackground;
-    cv::Rect copiedArea;
     int x1, y1, x2, y2;
 public:
     Interface(cv::Mat& fg, cv::Mat& bg){
@@ -37,7 +36,7 @@ public:
         background = bg.clone();
         dispForeground = fg.clone();
         background = bg.clone();
-        std::cout << "help: " << std::endl << " c = copy, p = paste, r = return " << std::endl;
+        std::cout << "help: " << std::endl << " s = select and clone, r = return " << std::endl;
         cv::namedWindow("window");
     }
 
@@ -45,17 +44,26 @@ public:
         while(true){
             unsigned int key = cv::waitKey(15);
             if(key == 27) return;
-            if(key == 99) copyArea();
-            if(key == 112) pasteArea();
+            if(key == 115) selectClone();
             if(key == 114) bringBack();
+            std::vector<cv::Mat> images = {dispForeground, dispBackground};
+            cv::imshow("window",hfitted_output(images));
         }
     }
 
     void aim(cv::Mat& disp, cv::Mat& ground){
         std::cout << "input coords: x in (0," << ground.shape[1] << "), y in (0," 
                 << ground.shape[0] << ")" << std::endl;
-        disp = ground;
-        copiedArea = cv::Rect(cv::Point(x1,y1),cv::Point(x2,y2));
+        disp = ground.clone();
+        cv::rectangle(disp, cv::Rect(cv::Point(x1,y1), cv::Point(x2,y2)), (0,255,0));
+    }
+
+    void selectClone(){
+        aim(dispForeground, foreground);
+        cv::Mat temp = foreground(cv::Rect(cv::Point(x1,y1),cv::Point(x2,y2)));
+        aim(dispBackground, background);
+        cv::resize(temp, temp, cv::Size(x2-x1, y2-y1));
+        temp.copyTo(dispBackground(cv::Rect(cv::Point(x1,y1),cv::Point(x2,y2))));
     }
 }
 
