@@ -86,23 +86,35 @@ public:
            Так как мы не меняем f, то порядок обхода сохраняется и СЛАУ составится правильно
            Коэффициенты: -1 в пересечении (N /\ Omega), 4 для рассматриваемого пикселя и 0 иначе */
         for(pixelmapIter p = f.begin(); p != f.end(); ++p){
-        // Считаем левую часть
+            int righthand = 0;
             int p_dist = std::distance<pixelmapIter> (f.begin(), p);
-            for(pixelmapIter q = f.begin(); q != f.end(); q++){ 
+            A.insert(p_dist,p_dist) = 4; // наш элемент
+            std::vector<cv::Point> neighbours{cv::Point(0,1),cv::Point(1,0),cv::Point(0,-1),cv::Point(-1,0)};
+            for(const auto n : neighbours){
+                if(f.count(p->first+n)){ 
+                    int q_dist = std::distance<pixelmapIter> (f.begin(), f.find(p->first+n));
+                    A.insert(p_dist, q_dist) = -1;
+                }
+                else righthand += S.at<uchar>(p->first + n);
+            }
+            righthand += gradOmega(p->first);
+            b(p_dist) = righthand;
+            std::cout << "percent of SLE building: " << p_dist << " of " << f.size() << std::endl;
+            /*for(pixelmapIter q = f.begin(); q != f.end(); q++){ 
                 int q_dist = std::distance<pixelmapIter> (f.begin(), q);
                 if(norm_l1(p->first, q->first) == 1) A.insert(p_dist, q_dist) = -1;
                 if(norm_l1(p->first, q->first) == 0) A.insert(p_dist, q_dist) = 4;
-            }
+            }*/
         // Считаем правую часть: 
         // если точка p+n не содержится в Omega, но p в Omega есть, то она содержится на границе
-            int rhs = 0;
-            std::vector<cv::Point> neighbours{cv::Point(0,1),cv::Point(1,0),cv::Point(0,-1),cv::Point(-1,0)};
+            /*int rhs = 0;
+             std::vector<cv::Point> neighbours{cv::Point(0,1),cv::Point(1,0),cv::Point(0,-1),cv::Point(-1,0)};
             for(const auto n : neighbours){
                 if(!f.count(p->first + n)) rhs += S.at<uchar>(p->first + n);
             }
             rhs += gradOmega(p->first);
             b(p_dist) = rhs;
-            std::cout << "percent of SLE building: " << p_dist / f.size() * 100 << std::endl;
+            std::cout << "percent of SLE building: " << p_dist << " of " << f.size() << std::endl; */
         }
         std::cout << "SLE has been builded in matrix form" << std::endl;
     }
@@ -178,7 +190,7 @@ public:
         cv::Mat temp = foreground(cv::Rect(cv::Point(x1,y1),cv::Point(x2,y2)));
         aim(dispBackground, background);
         cv::resize(temp,temp, cv::Size(x2-x1, y2-y1));
-        cv::Mat mask(foreground.size(),foreground.type(),cv::Scalar(0,0,0));
+        cv::Mat mask(background.size(),background.type(),cv::Scalar(0,0,0));
         temp.copyTo(mask(cv::Rect(cv::Point(x1,y1),cv::Point(x2,y2))));
         // Имеем маску с изображением, теперь разобьем всё на каналы 
         std::vector<cv::Mat> maskChannels(3);
