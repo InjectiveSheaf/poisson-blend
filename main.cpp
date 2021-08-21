@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include "opencv2/opencv.hpp"
-#include "eigen3/Eigen/Core/eigen.hpp"
+#include "eigen3/Eigen/Core"
 
 
 cv::Mat hfit(std::vector<cv::Mat> &images){
@@ -35,11 +35,11 @@ cv::Mat hfit(std::vector<cv::Mat> &images){
  * тогда, составляем матрицу из векторов, а значения справа - 
  * суммируя результаты функций getRightSum и getGradient для каждой строки.
  */
-
+template<typename Derived>
 class Poisson{ // Для одного канала, в интерфейсе получим для всех трёх и сложим
 private:
-    Eigen::Matrix Omega; // Omega \in S 
-    Eigen::Matrix S; 
+    Eigen::Matrix<typename Derived::cellType, Derived::Rows, Derived::Columns> Omega; // Omega \in S 
+    Eigen::Matrix<typename Derived::cellType, Derived::Rows, Derived::Columns> S; 
     bool isNeighbour(cv::Point p, cv::Point q){
         int l1_norm = std::abs(p.x - q.x) + std::abs(p.y - q.y);
         return l1_norm == 1;
@@ -55,18 +55,16 @@ public:
  * 1. Omega = 0 вне области вставки
  * 2. Для удобства предполагаем, что dim(Omega) = dim(S).
  */ 
-
     Poisson();
-    void loadMatrices(Eigen::Matrix &_Omega, Eigen::Matrix &_S){
+    void loadMatrices(Eigen::MatrixBase<Derived> & _Omega, Eigen::MatrixBase<Derived> & _S){
         Omega = _Omega;
         S = _S;
     }
 
-    Eigen::Matrix solve(){ 
-        k = Omega.size() - std::count(auto x : Omega.reshaped(), 0); // количество пикселей
-
-        Eigen::Matrix<double,k,k> A;
-        Eigen::Vector<double,k> b;
+    Eigen::Matrix<typename Derived::cellType, Derived::Rows, Derived::Columns> solve(){ 
+        int k = Omega.size() - std::count(Omega.reshaped().begin(),Omega.reshaped().end(), 0); // количество пикселей
+        Eigen::Matrix<double,Eigen::Dynamic,Eigen::Dynamic> A;
+        Eigen::Matrix<double,Eigen::Dynamic,1> b;
         std::unordered_map<cv::Point, double> f; // f: Omega -> R
         
         // Заполняем наше отображение
@@ -78,16 +76,16 @@ public:
         }
         // Теперь составим для каждого пикселя уравнение и решим СЛАУ
         for(const auto &[p_key,p_val] : f){ // p имеет тип cv::Point
-            Eigen::vector<double,k> lhs;
+            Eigen::VectorXd lhs;
             double rhs = 0;
             // Так как мы не меняем f, порядок обхода сохраняется и СЛАУ правильно составится 
             for(const auto &[q_key,q_val] : f){ 
-                if(isNeighbour(q_key,p_key)) v << -1; // Коэффициенты для соседей в пересечении с Omega
-                if(q_key == p_key) v << 4; // Пиксель, у которого мы смотрим окрестность
-                else v << 0; // Пиксели вне окрестности p
+                if(isNeighbour(q_key,p_key)) lhs << -1; // Коэффициенты для соседей в пересечении с Omega
+                if(q_key == p_key) lhs << 4; // Пиксель, у которого мы смотрим окрестность
+                else lhs << 0; // Пиксели вне окрестности p
             }
             // Считаем правую часть
-            vector<cv::Point> neighbours = {(0,1),(1,0),(0,-1),(-1,0)};
+            std::vector<cv::Point> neighbours = {(0,1),(1,0),(0,-1),(-1,0)};
             for(const auto nbs : neighbours){
                 if(!f.count(p_key+nbs)) rhs += S((p_key+nbs).x,(p_key+nbs).y);
             }
@@ -142,7 +140,7 @@ public:
 
     void poissonClone(){
         aim(dispForeground, foreground);
-        cv::Mat Omega = 
+        cv::Mat temp = foreground(cv::Rect(cv::Point(x1,y1),cv::Point(x2,y2)));
     }
 
     void bringBack(){
