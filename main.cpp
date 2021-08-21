@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <algorithm>
+#include <cstdlib>
 #include "opencv2/opencv.hpp"
 #include "eigen3/Eigen/Core/eigen.hpp"
 
@@ -39,6 +40,15 @@ class Poisson{ // Для одного канала, в интерфейсе по
 private:
     Eigen::Matrix Omega; // Omega \in S 
     Eigen::Matrix S; 
+    bool isNeighbour(cv::Point p, cv::Point q){
+        int l1_norm = std::abs(p.x - q.x) + std::abs(p.y - q.y);
+        return l1_norm == 1;
+    }
+    double grad(cv::Point p){
+        double grad_x = Omega(p.x+1,p.y) - Omega(p.x-1,p.y);
+        double grad_y = Omega(p.x,p.y+1) - Omega(p.x,p.y-1);
+        return grad_x + grad_y;
+    }
 public:
 /* Для того, чтобы пользоваться в дальнейшем произвольными формами, а не только прямоугольниками
  * Используем представление через маску:
@@ -54,31 +64,34 @@ public:
 
     Eigen::Matrix solve(){ 
         k = Omega.size() - std::count(auto x : Omega.reshaped(), 0); // количество пикселей
+
         Eigen::Matrix<double,k,k> A;
         Eigen::Vector<double,k> b;
         std::unordered_map<cv::Point, double> f; // f: Omega -> R
+        
         // Заполняем наше отображение
         for(int x = 0; x < Omega.cols(); x++){
             for(int y = 0; y < Omega.rows(); y++){
-                if(Omega(x,y) == 0) continue; // нас не интересует, мы работаем с неизвестными пикселями
+                if(Omega(x,y) == 0) continue; // пиксели вне маски нас не интересуют
                 else f[cv::Point(x,y)] = Omega(x,y);
             }
         }
         // Теперь составим для каждого пикселя уравнение и решим СЛАУ
-        for(const auto &[p,p_val]: f){ // p имеет тип cv::Point
+        for(const auto &[p_key,p_val] : f){ // p имеет тип cv::Point
             Eigen::vector<double,k> lhs;
-            double rhs;
-            for(const auto &[q,q_val]: f){ 
+            double rhs = 0;
             // Так как мы не меняем f, порядок обхода сохраняется и СЛАУ правильно составится 
-                if(isNeighbour(q,p) && f.count(q)) v << -1; // Коэффициенты для соседей в пересечении с Omega
-                if(q = p) v << 4; // Пиксель, который мы смотрим
-                else v << 0; // Все остальные
+            for(const auto &[q_key,q_val] : f){ 
+                if(isNeighbour(q_key,p_key)) v << -1; // Коэффициенты для соседей в пересечении с Omega
+                if(q_key == p_key) v << 4; // Пиксель, у которого мы смотрим окрестность
+                else v << 0; // Пиксели вне окрестности p
             }
-            for(const auto &[q,q_val]: f){
-                if(isNeighbour(q,p) && !f.count(q)){
-                    right += S(q.first.x,q.first.y);
-                }
+            // Считаем правую часть
+            vector<cv::Point> neighbours = {(0,1),(1,0),(0,-1),(-1,0)};
+            for(const auto nbs : neighbours){
+                if(!f.count(p_key+nbs)) rhs += S((p_key+nbs).x,(p_key+nbs).y);
             }
+            rhs += grad(p_key);
         }
     }
 };
