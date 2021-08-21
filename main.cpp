@@ -4,8 +4,7 @@
 #include <map>
 #include <cstdlib>
 #include "opencv2/opencv.hpp"
-#include "eigen3/Eigen/Core"
-#include "eigen3/Eigen/Cholesky"
+#include "eigen3/Eigen/Sparse"
 
 cv::Mat hfit(std::vector<cv::Mat> &images){
         const std::vector<cv::Mat>::iterator min_img = 
@@ -32,83 +31,18 @@ cv::Mat hfit(std::vector<cv::Mat> &images){
  * Помимо этого знаем градиент gradFx(x,y) = df/dx + df/dy 
  * Пока что работаем в условии того, что включение Omega \in S нестрогое,
  * т.е. коэффициент N=4 перед f \forall N,
- * и коэффициенты в проколотой окрестности f существуют и равны -1
+ * и коэффициенты в проколотой окрестности f существуют и равны -1 => матрица будет разреженной
  * т.е. слева в строке стоит вектор вида (...,-1,...,-1,4,-1,...,-1,...)
  * справа же можем посчитать сумму значений в окрестности и градиент при помощи разностной аппроксимации
- * тогда, составляем матрицу из векторов, а значения справа - 
- * суммируя результаты функций getRightSum и getGradient для каждой строки.
+ * тогда, составляем матрицу A из векторов, а значения справа в b - считая для каждой строки
+ * потом решаем систему Ax = b, далее ассоциируя значения из x со значениями в результирующем изображении.
  */
-/*
-template<typename Derived>
-class Poisson{ // Для одного канала, в интерфейсе получим для всех трёх и сложим
-private:
-    // Eigen::Matrix<typename Derived::cellType, Derived::Rows, Derived::Columns> Omega; // Omega \in S 
-    // Eigen::Matrix<typename Derived::cellType, Derived::Rows, Derived::Columns> S; 
-    Eigen::MatrixXd Omega, S;
-    bool isNeighbour(cv::Point p, cv::Point q){
-        int l1_norm = std::abs(p.x - q.x) + std::abs(p.y - q.y);
-        return l1_norm == 1;
-    }
-    double grad(cv::Point p){
-        double grad_x = Omega(p.x+1,p.y) - Omega(p.x-1,p.y);
-        double grad_y = Omega(p.x,p.y+1) - Omega(p.x,p.y-1);
-        return grad_x + grad_y;
-    }
-public:
- // Для того, чтобы пользоваться в дальнейшем произвольными формами, а не только прямоугольниками
- // Используем представление через маску:
- // 1. Omega = 0 вне области вставки
- // 2. Для удобства предполагаем, что dim(Omega) = dim(S).
- // 
-    Poisson();
-    void loadMatrices(Eigen::MatrixBase<Derived> & _Omega, Eigen::MatrixBase<Derived> & _S){
-    //void loadMatrices(Eigen::MatrixXd & _Omega, Eigen::MatrixXd & _S){
-        Omega = _Omega;
-        S = _S;
-    }
-
-    Eigen::Matrix<typename Derived::cellType, Derived::Rows, Derived::Columns> solve(){ 
-    // Eigen::MatrixXd solve(){
-        int k = Omega.size() - std::count(Omega.reshaped().begin(),Omega.reshaped().end(), 0); // количество пикселей
-        // int k = (Omega.array() != 0).count();
-        Eigen::MatrixXd A;
-        Eigen::VectorXd b;
-        std::unordered_map<cv::Point, double> f; // f: Omega -> R
-        
-        // Заполняем наше отображение
-        for(int x = 0; x < Omega.cols(); x++){
-            for(int y = 0; y < Omega.rows(); y++){
-                if(Omega(x,y) == 0) continue; // пиксели вне маски нас не интересуют
-                else f[cv::Point(x,y)] = Omega(x,y);
-            }
-        }
-        // Теперь составим для каждого пикселя уравнение и решим СЛАУ
-        for(const auto &[p_key,p_val] : f){ // p имеет тип cv::Point
-            Eigen::VectorXd lhs;
-            double rhs = 0;
-            // Так как мы не меняем f, порядок обхода сохраняется и СЛАУ правильно составится 
-            for(const auto &[q_key,q_val] : f){ 
-                if(isNeighbour(q_key,p_key)) lhs << -1; // Коэффициенты для соседей в пересечении с Omega
-                if(q_key == p_key) lhs << 4; // Пиксель, у которого мы смотрим окрестность
-                else lhs << 0; // Пиксели вне окрестности p
-            }
-            A << lhs;
-            // Считаем правую часть
-            std::vector<cv::Point> neighbours = {(0,1),(1,0),(0,-1),(-1,0)};
-            for(const auto nbs : neighbours){
-                if(!f.count(p_key+nbs)) rhs += S((p_key+nbs).x,(p_key+nbs).y);
-            }
-            rhs += grad(p_key);
-        }
-    }
-}; 
-*/
 
 class Poisson{
 private:
     cv::Mat Omega;
     cv::Mat S;
-    Eigen::MatrixXd A;
+    Eigen::SparseMatrix<double> A;
     Eigen::VectorXd b;
     
     struct PointComparator{
@@ -120,9 +54,8 @@ private:
     typedef std::map<cv::Point, uchar, PointComparator>::iterator pixelmapIter;
     std::map<cv::Point, uchar, PointComparator> f;
     
-    bool isNeighbour(cv::Point p, cv::Point q){
-        int l1_norm = std::abs(p.x - q.x) + std::abs(p.y - q.y);
-        return l1_norm == 1;
+    int norm_l1(cv::Point p, cv::Point q){
+        return std::abs(p.x - q.x) + std::abs(p.y - q.y);
     }
 
     double gradOmega(cv::Point p){
@@ -135,10 +68,6 @@ public:
         Omega = overlayingImage;
         S = baseImage;
         f.clear();
-    }
-    
-    void doAlgorithm(){
-        // Заполняем контейнер пикселями
         for(int y = 0; y < Omega.rows; ++y){
             for(int x = 0; x < Omega.cols; ++x){
                 cv::Point p(x,y);
@@ -147,45 +76,41 @@ public:
                 }
             }
         }
-        A.resize(f.size(),f.size());
-        b.resize(f.size());
-        /* Теперь составляем уравнения
+        A.resize(f.size(), f.size());
+        b = Eigen::VectorXd::Zero(f.size());
+    }
+    
+    void doAlgorithm(){
+        /* Cоставляем уравнения:
            p_key и q_key - имеют тип cv::Point, по ним идёт итерация
            Так как мы не меняем f, то порядок обхода сохраняется и СЛАУ составится правильно
-           Вектор-строка lhs и скаляр rhs - это left-hand и right-hand side соответственно
            Коэффициенты: -1 в пересечении (N /\ Omega), 4 для рассматриваемого пикселя и 0 иначе */
         for(pixelmapIter p = f.begin(); p != f.end(); ++p){
-            Eigen::VectorXd lhs(f.size());
-            double rhs = 0;
-            std::cout << "initialised" << std::endl;
         // Считаем левую часть
-            for(pixelmapIter q = f.begin(); q != f.end(); ++q){ 
-                int dist = std::distance<pixelmapIter> (f.begin(), q);
-                if(isNeighbour(q->first, p->first)) lhs(dist) = -1 ; 
-                else if(q->first == p->first) lhs(dist) = 4 ; 
-                else lhs(dist) = 0 ; 
+            int p_dist = std::distance<pixelmapIter> (f.begin(), p);
+            for(pixelmapIter q = f.begin(); q != f.end(); q++){ 
+                int q_dist = std::distance<pixelmapIter> (f.begin(), q);
+                if(norm_l1(p->first, q->first) == 1) A.insert(p_dist, q_dist) = -1;
+                if(norm_l1(p->first, q->first) == 0) A.insert(p_dist, q_dist) = 4;
             }
-            A.row(std::distance<pixelmapIter> (f.begin(), p)) = lhs;
-            std::cout << "left-hand ok ";
         // Считаем правую часть: 
         // если точка p+n не содержится в Omega, но p в Omega есть, то она содержится на границе
+            int rhs = 0;
             std::vector<cv::Point> neighbours{cv::Point(0,1),cv::Point(1,0),cv::Point(0,-1),cv::Point(-1,0)};
             for(const auto n : neighbours){
                 if(!f.count(p->first + n)) rhs += S.at<uchar>(p->first + n);
             }
             rhs += gradOmega(p->first);
-            b << rhs;
-            std::cout << "right-hand ok" << std::endl;
+            b(p_dist) = rhs;
         }
+        std::cout << "SLE has been builded in matrix form" << std::endl;
     }
+
     cv::Mat getResult(){
-        Eigen::VectorXd x;
+        Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> LDLT(A);
+        Eigen::VectorXd x = LDLT.solve(b);
+        
         cv::Mat result(S.size(), S.type(), cv::Scalar(0,0,0));
-        /* SparceMatrix<double> A
-         * Eigen::SimplicialLDLT<SparseMatrix<double>> Solver;
-         * Solver.compute(A);
-         * x = Solver.solve(b);
-         */ 
         for(pixelmapIter p = f.begin(); p != f.end(); ++p){
             result.at<uchar>(p->first) = x(std::distance<pixelmapIter> (f.begin(), p));
         }
@@ -268,10 +193,10 @@ public:
             SimeonDenis->updateMatrices(maskChannels[i], bgChannels[i]);
             SimeonDenis->doAlgorithm();
             resChannels[i] = SimeonDenis->getResult().clone();
+            cv::merge(resChannels,result);
+            dispBackground = result.clone();
         }
-        
-        cv::merge(resChannels,result);
-        dispBackground = result.clone();
+        cv::imwrite("result.jpg", result);   
     }
 
     void bringBack(){
