@@ -102,6 +102,7 @@ public:
             }
             rhs += gradOmega(p->first);
             b(p_dist) = rhs;
+            std::cout << "percent of SLE building: " << p_dist / f.size() * 100 << std::endl;
         }
         std::cout << "SLE has been builded in matrix form" << std::endl;
     }
@@ -193,9 +194,10 @@ public:
             SimeonDenis->updateMatrices(maskChannels[i], bgChannels[i]);
             SimeonDenis->doAlgorithm();
             resChannels[i] = SimeonDenis->getResult().clone();
-            cv::merge(resChannels,result);
             dispBackground = result.clone();
         }
+        cv::merge(resChannels,result);
+        dispBackground = result.clone();
         cv::imwrite("result.jpg", result);   
     }
 
