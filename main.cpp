@@ -1,10 +1,11 @@
 #include <iostream>
 #include <string>
 #include <algorithm>
+#include <map>
 #include <cstdlib>
 #include "opencv2/opencv.hpp"
 #include "eigen3/Eigen/Core"
-
+#include "eigen3/Eigen/Cholesky"
 
 cv::Mat hfit(std::vector<cv::Mat> &images){
         const std::vector<cv::Mat>::iterator min_img = 
@@ -103,34 +104,102 @@ public:
 }; 
 */
 
-class PoissonSolver{
+class Poisson{
 private:
     cv::Mat Omega;
     cv::Mat S;
     Eigen::MatrixXd A;
     Eigen::VectorXd b;
+    
+    struct PointComparator{
+        bool operator () (const cv::Point& a, const cv::Point& b) const{ 
+            return (a.x < b.x) || (a.x == b.x && a.y < b.y);
+        }
+    };
+
+    typedef std::map<cv::Point, uchar, PointComparator>::iterator pixelmapIter;
+    std::map<cv::Point, uchar, PointComparator> f;
+    
     bool isNeighbour(cv::Point p, cv::Point q){
         int l1_norm = std::abs(p.x - q.x) + std::abs(p.y - q.y);
         return l1_norm == 1;
     }
+
     double gradOmega(cv::Point p){
-        double grad_x = Omega.at(p.x+1, p.y) - Omega(p.x-1, p.y);
-        double grad_y = Omega.at(p.x, p.y+1) - Omega(p.x, p.y-1);
+        double grad_x = Omega.at<char>(p + cv::Point(1,0)) - Omega.at<char>(p + cv::Point(-1,0));
+        double grad_y = Omega.at<char>(p + cv::Point(0,1)) - Omega.at<char>(p + cv::Point(0,-1));
         return (grad_x + grad_y)/2;
     }
 public:
-    PoissonSolver(cv::Mat & overlayingImage, cv::Mat & baseImage){
+    void updateMatrices(cv::Mat & overlayingImage, cv::Mat & baseImage){
         Omega = overlayingImage;
         S = baseImage;
+        f.clear();
     }
-    void updateMatrices(cv::Mat & overlayingImage, cv::Mat & baseImage){
-        Omega = _Omega;
-        S = _S;
+    
+    void doAlgorithm(){
+        // Заполняем контейнер пикселями
+        for(int y = 0; y < Omega.rows; ++y){
+            for(int x = 0; x < Omega.cols; ++x){
+                cv::Point p(x,y);
+                if(Omega.at<uchar>(p) != 0){
+                    f[p] = Omega.at<uchar>(p);
+                }
+            }
+        }
+        A.resize(f.size(),f.size());
+        b.resize(f.size());
+        /* Теперь составляем уравнения
+           p_key и q_key - имеют тип cv::Point, по ним идёт итерация
+           Так как мы не меняем f, то порядок обхода сохраняется и СЛАУ составится правильно
+           Вектор-строка lhs и скаляр rhs - это left-hand и right-hand side соответственно
+           Коэффициенты: -1 в пересечении (N /\ Omega), 4 для рассматриваемого пикселя и 0 иначе */
+        for(pixelmapIter p = f.begin(); p != f.end(); ++p){
+            Eigen::VectorXd lhs(f.size());
+            double rhs = 0;
+            std::cout << "initialised" << std::endl;
+        // Считаем левую часть
+            for(pixelmapIter q = f.begin(); q != f.end(); ++q){ 
+                int dist = std::distance<pixelmapIter> (f.begin(), q);
+                if(isNeighbour(q->first, p->first)) lhs(dist) = -1 ; 
+                else if(q->first == p->first) lhs(dist) = 4 ; 
+                else lhs(dist) = 0 ; 
+            }
+            A.row(std::distance<pixelmapIter> (f.begin(), p)) = lhs;
+            std::cout << "left-hand ok ";
+        // Считаем правую часть: 
+        // если точка p+n не содержится в Omega, но p в Omega есть, то она содержится на границе
+            std::vector<cv::Point> neighbours{cv::Point(0,1),cv::Point(1,0),cv::Point(0,-1),cv::Point(-1,0)};
+            for(const auto n : neighbours){
+                if(!f.count(p->first + n)) rhs += S.at<uchar>(p->first + n);
+            }
+            rhs += gradOmega(p->first);
+            b << rhs;
+            std::cout << "right-hand ok" << std::endl;
+        }
     }
-    cv::Mat ResultImage(){
-       int k = Omega.rows() * Omega.cols() - std::count(const auto x : Omega, 0);
+    cv::Mat getResult(){
+        Eigen::VectorXd x;
+        cv::Mat result(S.size(), S.type(), cv::Scalar(0,0,0));
+        /* SparceMatrix<double> A
+         * Eigen::SimplicialLDLT<SparseMatrix<double>> Solver;
+         * Solver.compute(A);
+         * x = Solver.solve(b);
+         */ 
+        for(pixelmapIter p = f.begin(); p != f.end(); ++p){
+            result.at<uchar>(p->first) = x(std::distance<pixelmapIter> (f.begin(), p));
+        }
+        for(int y = 0; y < result.rows; ++y){
+            for(int x = 0; x < result.cols; ++x){
+                cv::Point p(x,y);
+                if(Omega.at<uchar>(p) == 0){
+                    result.at<uchar>(p) = S.at<uchar>(p);
+                }
+            }
+        }
+        return result;
     }
-}
+};
 
 class Interface{
 private:
@@ -191,13 +260,18 @@ public:
         cv::split(mask,maskChannels);
         cv::split(background,bgChannels);
         // И поканально пропустим в алгоритм
+        cv::Mat result;
         std::vector<cv::Mat> resChannels(3);
+        Poisson* SimeonDenis = new Poisson();
+
         for(int i = 0; i < 3; i++){
-            cv::cv2eigen(maskChannels[i], Omega);
-            cv::cv2eigen(bgChannels[i], S);
-            Poisson<Eigen::Matrix<double, rows, cols>> *SD = new Poisson();
-            Poisson->loadMatrices(Omega, S);
+            SimeonDenis->updateMatrices(maskChannels[i], bgChannels[i]);
+            SimeonDenis->doAlgorithm();
+            resChannels[i] = SimeonDenis->getResult().clone();
         }
+        
+        cv::merge(resChannels,result);
+        dispBackground = result.clone();
     }
 
     void bringBack(){
