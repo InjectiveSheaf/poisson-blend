@@ -7,13 +7,13 @@
 #include "eigen3/Eigen/Sparse"
 
 cv::Mat hfit(std::vector<cv::Mat> &images){
-        const std::vector<cv::Mat>::iterator min_img = 
-        std::min_element(images.begin(), images.end(),
+        const std::vector<cv::Mat>::iterator fitImg = 
+        std::max_element(images.begin(), images.end(),
             [](const cv::Mat& im1, const cv::Mat& im2){return im1.size[0] < im2.size[0];}
         );
 
-        const auto resize = [&min_img](cv::Mat& im){
-            cv::resize(im, im, min_img->size());
+        const auto resize = [&fitImg](cv::Mat& im){
+            cv::resize(im, im, fitImg->size());
         };
 
         std::for_each(images.begin(), images.end(), resize);
@@ -30,11 +30,9 @@ cv::Mat hfit(std::vector<cv::Mat> &images){
 /* Имеем f(x,y) - искомую функцию на Omega и f*(x,y) - известную функцию на S
  * Помимо этого знаем градиент gradFx(x,y) = df/dx + df/dy 
  * Пока что работаем в условии того, что включение Omega \in S нестрогое,
- * т.е. коэффициент N=4 перед f \forall N,
- * и коэффициенты в проколотой окрестности f существуют и равны -1 => матрица будет разреженной
- * т.е. слева в строке стоит вектор вида (...,-1,...,-1,4,-1,...,-1,...)
- * справа же можем посчитать сумму значений в окрестности и градиент при помощи разностной аппроксимации
- * тогда, составляем матрицу A из векторов, а значения справа в b - считая для каждой строки
+ * т.е. коэффициент N=4 перед f_p
+ * и все коэффицинты перед f_q в окрестности f_p равны -1
+ * составляем матрицу A и считаем b для каждой строки
  * потом решаем систему Ax = b, далее ассоциируя значения из x со значениями в результирующем изображении.
  */
 
@@ -51,23 +49,19 @@ private:
         }
     };
 
-    typedef std::map<cv::Point, uchar, PointComparator>::iterator pixelmapIter;
     std::map<cv::Point, uchar, PointComparator> f;
-    
-    int norm_l1(cv::Point p, cv::Point q){
-        return std::abs(p.x - q.x) + std::abs(p.y - q.y);
-    }
+    typedef std::map<cv::Point, uchar, PointComparator>::iterator pixelMapIter;
 
     double gradOmega(cv::Point p){
-        double grad_x = Omega.at<char>(p + cv::Point(1,0)) - Omega.at<char>(p + cv::Point(-1,0));
-        double grad_y = Omega.at<char>(p + cv::Point(0,1)) - Omega.at<char>(p + cv::Point(0,-1));
+        double grad_x = Omega.at<uchar>(p + cv::Point(1,0)) - Omega.at<uchar>(p + cv::Point(-1,0));
+        double grad_y = Omega.at<uchar>(p + cv::Point(0,1)) - Omega.at<uchar>(p + cv::Point(0,-1));
         return (grad_x + grad_y)/2;
     }
 public:
     void updateMatrices(cv::Mat & overlayingImage, cv::Mat & baseImage){
+        f.clear();
         Omega = overlayingImage;
         S = baseImage;
-        f.clear();
         for(int y = 0; y < Omega.rows; ++y){
             for(int x = 0; x < Omega.cols; ++x){
                 cv::Point p(x,y);
@@ -77,55 +71,47 @@ public:
             }
         }
         A.resize(f.size(), f.size());
-        b = Eigen::VectorXd::Zero(f.size());
+        b.resize(f.size());
     }
     
-    void doAlgorithm(){
-        /* Cоставляем уравнения:
-           p_key и q_key - имеют тип cv::Point, по ним идёт итерация
-           Так как мы не меняем f, то порядок обхода сохраняется и СЛАУ составится правильно
-           Коэффициенты: -1 в пересечении (N /\ Omega), 4 для рассматриваемого пикселя и 0 иначе */
-        for(pixelmapIter p = f.begin(); p != f.end(); ++p){
-            int righthand = 0;
-            int p_dist = std::distance<pixelmapIter> (f.begin(), p);
-            A.insert(p_dist,p_dist) = 4; // наш элемент
-            std::vector<cv::Point> neighbours{cv::Point(0,1),cv::Point(1,0),cv::Point(0,-1),cv::Point(-1,0)};
+/* Cоставляем уравнения:
+ * Итерируем по всем пикселям p в Map f.
+ * Задаем коэффициенты разреженной матрицы A и вектор-столбца b.
+ * Коэффициенты: -1 в пересечении N и Omega, и 4 для p 
+ */
+    void buildSLE(){    
+        std::vector<cv::Point> neighbours{cv::Point(0,1), cv::Point(1,0), cv::Point(0,-1), cv::Point(-1,0)};
+        for(pixelMapIter p = f.begin(); p != f.end(); ++p){
+            int p_index = std::distance<pixelMapIter> (f.begin(), p);
+            int b_temp = 0;
+            
+            A.insert(p_index, p_index) = 4; // рассматриваемый пиксель
+            
+            // задаем коэффициенты для пересечении окрестности и внутренности/границы множества
             for(const auto n : neighbours){
-                if(f.count(p->first+n)){ 
-                    int q_dist = std::distance<pixelmapIter> (f.begin(), f.find(p->first+n));
-                    A.insert(p_dist, q_dist) = -1;
+                pixelMapIter q = f.find(p->first + n);
+                if(q != f.end()){ 
+                    int q_index = std::distance<pixelMapIter> (f.begin(), q);
+                    A.insert(p_index, q_index) = -1;
                 }
-                else righthand += S.at<uchar>(p->first + n);
+                else b_temp += S.at<uchar>(p->first + n); // если нет, то это граница Omega
             }
-            righthand += gradOmega(p->first);
-            b(p_dist) = righthand;
-            std::cout << "percent of SLE building: " << p_dist << " of " << f.size() << std::endl;
-            /*for(pixelmapIter q = f.begin(); q != f.end(); q++){ 
-                int q_dist = std::distance<pixelmapIter> (f.begin(), q);
-                if(norm_l1(p->first, q->first) == 1) A.insert(p_dist, q_dist) = -1;
-                if(norm_l1(p->first, q->first) == 0) A.insert(p_dist, q_dist) = 4;
-            }*/
-        // Считаем правую часть: 
-        // если точка p+n не содержится в Omega, но p в Omega есть, то она содержится на границе
-            /*int rhs = 0;
-             std::vector<cv::Point> neighbours{cv::Point(0,1),cv::Point(1,0),cv::Point(0,-1),cv::Point(-1,0)};
-            for(const auto n : neighbours){
-                if(!f.count(p->first + n)) rhs += S.at<uchar>(p->first + n);
-            }
-            rhs += gradOmega(p->first);
-            b(p_dist) = rhs;
-            std::cout << "percent of SLE building: " << p_dist << " of " << f.size() << std::endl; */
+
+            b_temp += gradOmega(p->first);
+            b(p_index) = b_temp;
+            
+            // std::cout << "SLE building: " << p_dist << " of " << f.size() << std::endl;
         }
-        std::cout << "SLE has been builded in matrix form" << std::endl;
+        std::cout << "SLE has been builded in a matrix form" << std::endl;
     }
 
     cv::Mat getResult(){
         Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> LDLT(A);
         Eigen::VectorXd x = LDLT.solve(b);
-        
+        std::cout << *(std::min_element(x.data(), x.data()+x.size())) << " <- min, max ->" << *(std::max_element(x.data(),x.data()+x.size())) << std::endl;
         cv::Mat result(S.size(), S.type(), cv::Scalar(0,0,0));
-        for(pixelmapIter p = f.begin(); p != f.end(); ++p){
-            result.at<uchar>(p->first) = x(std::distance<pixelmapIter> (f.begin(), p));
+        for(pixelMapIter p = f.begin(); p != f.end(); ++p){
+            result.at<uchar>(p->first) = uchar(x(std::distance<pixelMapIter> (f.begin(), p)));
         }
         for(int y = 0; y < result.rows; ++y){
             for(int x = 0; x < result.cols; ++x){
@@ -152,7 +138,7 @@ public:
         background = bg.clone();
         dispForeground = fg.clone();
         dispBackground = bg.clone();
-        std::cout << "help: " << std::endl << " s = select and clone, p = poisson clone, r = return " << std::endl;
+        std::cout << "help: " << std::endl << "s = select and clone, p = poisson clone, r = return, w = write." << std::endl;
         cv::namedWindow("window");
     }
 
@@ -163,6 +149,7 @@ public:
             if(key == 112) poissonClone();
             if(key == 115) selectClone();
             if(key == 114) bringBack();
+            if(key == 119) writeImage();
             std::vector<cv::Mat> images{dispForeground, dispBackground};
             cv::imshow("window", hfit(images));
         }
@@ -204,13 +191,12 @@ public:
 
         for(int i = 0; i < 3; i++){
             SimeonDenis->updateMatrices(maskChannels[i], bgChannels[i]);
-            SimeonDenis->doAlgorithm();
+            SimeonDenis->buildSLE();
             resChannels[i] = SimeonDenis->getResult().clone();
             dispBackground = result.clone();
         }
         cv::merge(resChannels,result);
         dispBackground = result.clone();
-        cv::imwrite("result.jpg", result);   
     }
 
     void bringBack(){
@@ -218,17 +204,24 @@ public:
         dispForeground = foreground.clone();
         dispBackground = background.clone();
     }
+
+    void writeImage(){
+        cv::imwrite("result.jpg", dispBackground);
+    }
 };
 
 int main(int argc, const char** argv) {
-    cv::Mat fg_img = cv::imread("foreground_im.jpg", cv::IMREAD_ANYCOLOR);
-    cv::Mat bg_img = cv::imread("background_im.jpg", cv::IMREAD_ANYCOLOR);
-    if (bg_img.empty() || fg_img.empty()) {
+    std::string fgName, bgName;
+    std::cout << "enter names of overlaying and base images" << std::endl;
+    std::cin >> fgName >> bgName;
+    cv::Mat foreground = cv::imread(fgName, cv::IMREAD_ANYCOLOR);
+    cv::Mat background = cv::imread(bgName, cv::IMREAD_ANYCOLOR);
+    if (background.empty() || foreground.empty()) {
         std::cout << "Error: Image cannot be loaded." << std::endl;
         system("pause");
         return -1;
     }
-    Interface I(fg_img, bg_img);
+    Interface I(foreground, background);
     I.startHandler();
     return 0;
 }
