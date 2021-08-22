@@ -42,7 +42,7 @@ private:
     cv::Mat S;
     Eigen::SparseMatrix<double> A;
     Eigen::VectorXd b;
-    
+
     struct PointComparator{
         bool operator () (const cv::Point& a, const cv::Point& b) const{ 
             return (a.x < b.x) || (a.x == b.x && a.y < b.y);
@@ -53,15 +53,15 @@ private:
     typedef std::map<cv::Point, uchar, PointComparator>::iterator pixelMapIter;
 
     double gradOmega(cv::Point p){
-        double grad_x = Omega.at<uchar>(p + cv::Point(1,0)) - Omega.at<uchar>(p + cv::Point(-1,0));
-        double grad_y = Omega.at<uchar>(p + cv::Point(0,1)) - Omega.at<uchar>(p + cv::Point(0,-1));
-        return (grad_x + grad_y)/2;
+        return (Omega.at<uchar>(p + cv::Point(1,0)) + Omega.at<uchar>(p + cv::Point(-1,0))
+                + Omega.at<uchar>(p + cv::Point(0,1)) + Omega.at<uchar>(p + cv::Point(0,-1)) 
+                )-4*Omega.at<uchar>(p);
     }
 public:
     void updateMatrices(cv::Mat & overlayingImage, cv::Mat & baseImage){
         f.clear();
-        Omega = overlayingImage;
-        S = baseImage;
+        Omega = overlayingImage.clone();
+        S = baseImage.clone();
         for(int y = 0; y < Omega.rows; ++y){
             for(int x = 0; x < Omega.cols; ++x){
                 cv::Point p(x,y);
@@ -69,7 +69,7 @@ public:
                     f[p] = Omega.at<uchar>(p);
                 }
             }
-        }
+        } 
         A.resize(f.size(), f.size());
         b.resize(f.size());
     }
@@ -80,13 +80,12 @@ public:
  * Коэффициенты: -1 в пересечении N и Omega, и 4 для p 
  */
     void buildSLE(){    
-        std::vector<cv::Point> neighbours{cv::Point(0,1), cv::Point(1,0), cv::Point(0,-1), cv::Point(-1,0)};
         for(pixelMapIter p = f.begin(); p != f.end(); ++p){
             int p_index = std::distance<pixelMapIter> (f.begin(), p);
             int b_temp = 0;
             
             A.insert(p_index, p_index) = 4; // рассматриваемый пиксель
-            
+            std::vector<cv::Point> neighbours{cv::Point(0,1), cv::Point(1,0), cv::Point(0,-1), cv::Point(-1,0)};
             // задаем коэффициенты для пересечении окрестности и внутренности/границы множества
             for(const auto n : neighbours){
                 pixelMapIter q = f.find(p->first + n);
@@ -99,7 +98,6 @@ public:
 
             b_temp += gradOmega(p->first);
             b(p_index) = b_temp;
-            
             // std::cout << "SLE building: " << p_dist << " of " << f.size() << std::endl;
         }
         std::cout << "SLE has been builded in a matrix form" << std::endl;
