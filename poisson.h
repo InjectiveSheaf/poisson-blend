@@ -24,18 +24,18 @@ private:
         }
     };
 
-    std::map<cv::Point, uchar, PointComparator> f;
-    typedef std::map<cv::Point, uchar, PointComparator>::iterator pixelMapIter;
+    std::map<cv::Point, float, PointComparator> f;
+    typedef std::map<cv::Point, float, PointComparator>::iterator pixelMapIterator;
 
-    double sumofFieldProj(cv::Point p);
+    float sumofFieldProj(cv::Point p);
+
+    void buildSLE();
 public:
     Poisson(){
         neighbours = {cv::Point(0,1), cv::Point(1,0), cv::Point(0,-1), cv::Point(-1,0)};
     }
 
     void updateMatrices(cv::Mat & overlayingImage, cv::Mat & baseImage);
-
-    void buildSLE();
 
     cv::Mat getResult();
 };

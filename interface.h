@@ -15,11 +15,11 @@ private:
 
     cv::Mat hfit(std::vector<cv::Mat> &images);
 
-    void hfitImages();
+    void showImages();
 
     void selectPolygon();
 
-    void selectPoints();
+    void selectPoint();
 
     void poissonClone(cv::Mat & binaryMask);
 
