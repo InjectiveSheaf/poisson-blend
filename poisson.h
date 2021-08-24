@@ -4,7 +4,7 @@
 #include <iostream>
 #include <string>
 #include <algorithm>
-#include <map>
+#include <unordered_map>
 #include <cstdlib>
 #include "opencv2/opencv.hpp"
 #include "eigen3/Eigen/Sparse"
@@ -24,8 +24,15 @@ private:
         }
     };
 
-    std::map<cv::Point, float, PointComparator> f;
-    typedef std::map<cv::Point, float, PointComparator>::iterator pixelMapIterator;
+    struct pointhash {
+    public:
+        std::size_t operator()(const cv::Point &p) const{
+            return std::hash<int>()(p.x) ^ std::hash<int>()(p.y);
+        }
+    };  
+
+    std::unordered_map<cv::Point, float, pointhash> f;
+    typedef std::unordered_map<cv::Point, float, pointhash>::iterator pixelMapIterator;
 
     float sumofFieldProj(cv::Point p);
 
