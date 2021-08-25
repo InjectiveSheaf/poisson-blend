@@ -10,6 +10,8 @@ Interface::Interface(cv::Mat& fg, cv::Mat& bg){
     cv::namedWindow("Poisson Blender");
 }
 
+
+
 cv::Mat Interface::hfit(std::vector<cv::Mat> &images){
     const auto fitFormImage =
     std::max_element(images.begin(), images.end(),
@@ -29,6 +31,8 @@ cv::Mat Interface::hfit(std::vector<cv::Mat> &images){
 
     return result;
 }
+
+
 
 void Interface::showImages(){
     dispForeground = foreground.clone();
@@ -60,6 +64,8 @@ void Interface::selectPolygon(){
     }
 }
 
+
+
 void Interface::selectPoint(){
     std::cout << "Enter point coordinates: x in (0, " << foreground.size[0] << "), " 
             << "y in (0, " << foreground.size[1] << ") "<< std::endl;
@@ -71,11 +77,13 @@ void Interface::selectPoint(){
         cv::fillConvexPoly(binaryMask, pointVector.data(), 
                         pointVector.size(), cv::Scalar(255,255,255));
         poissonClone(binaryMask);
-        return;
         std::cout << "Done. Press r to return to main menu." << std::endl;
+        return;
     }
     pointVector.push_back(cv::Point(x,y));
 }
+
+
 
 void Interface::poissonClone(cv::Mat & binaryMask){
     cv::Mat mask(background.size(), background.type(),cv::Scalar(0,0,0));
@@ -98,6 +106,8 @@ void Interface::poissonClone(cv::Mat & binaryMask){
     cv::merge(resChannels, result);
     dispBackground = result.clone();
 }
+
+
 
 void Interface::startHandler(){
     while(true){
