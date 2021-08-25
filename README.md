@@ -1,5 +1,3 @@
-#poisson-blend
-
 Реализация Пуассоновского бесшовного склеивания изображений. 
 Алгоритм описан здесь: _http://www.ctralie.com/Teaching/PoissonImageEditing/_ - и в прикрепленном pdf-файле
 
