@@ -50,8 +50,8 @@ cv::Mat Interface::hfit(std::vector<cv::Mat> &images){
 void Interface::showImages(){
     dispForeground = foreground.clone();
     for(const auto p : pointVector){
-        p *= fittedDisp.size[0] / dispForeground.size[0];
-        cv::circle( dispForeground, p, 3, cv::Scalar(0,255,0), -1 );
+        cv::Point q = p * (fittedDisp.size[0] / dispForeground.size[0]);
+        cv::circle( dispForeground, q, 3, cv::Scalar(0,255,0), -1 );
     }
     std::vector<cv::Mat> dispVec = {dispForeground, dispBackground};
     fittedDisp = hfit(dispVec);
