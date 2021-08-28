@@ -89,8 +89,6 @@ cv::Mat Poisson::getResult(){
     Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> LDLT(A);
     Eigen::VectorXd x = LDLT.solve(b);
 
-    std::cout << A << std::endl;
-    
     std::cout << "Solved: min->" << *(std::min_element(x.data(), x.data()+x.size())) << ", max ->" 
                                  << *(std::max_element(x.data(),x.data()+x.size())) << std::endl;
     
