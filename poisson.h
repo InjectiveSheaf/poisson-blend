@@ -9,6 +9,7 @@
 #include "opencv2/opencv.hpp"
 #include "eigen3/Eigen/Sparse"
 #include <random>
+#include <unordered_map>
 
 // Класс, отвечающий за главный алгоритм всея программы
 // Omega - область, значения функции f для которой мы хотим найти
@@ -30,29 +31,32 @@
 // buildSLE строит систему по f
 // getResult возвращает найденное решение в виде одноканального изображения (CV_8UC1)
 
+
 class Poisson{
 private:
     cv::Mat Omega;
     cv::Mat S;
     Eigen::SparseMatrix<double> A;
     Eigen::VectorXd b;
+    
     std::vector<cv::Point> neighbours{cv::Point(0,1), cv::Point(1,0), cv::Point(0,-1), cv::Point(-1,0)};
     
-    struct PointComparator{
-        bool operator () (const cv::Point& a, const cv::Point& b) const{ 
-            return (a.x < b.x) || (a.x == b.x && a.y < b.y);
+    struct PointHash{
+        std::size_t operator()(const cv::Point &p) const{
+            return std::hash<int>()(p.x) ^ std::hash<int>()(p.y);
         }
-    };
-    
-    std::map<cv::Point, float, PointComparator> f;
-    
-    typedef std::map<cv::Point, float, PointComparator>::iterator pixelMapIterator;
+    }; 
 
+    std::unordered_map <cv::Point, float, PointHash> f;
+
+    typedef std::unordered_map <cv::Point, float, PointHash>::iterator pixelMapIterator;
+    
     float laplace(cv::Point p, cv::Mat &img);
     
     int neighboursCount(cv::Point p); 
 
     void buildSLE();
+
 public:
     
     void updateMatrices(cv::Mat & overlayingImage, cv::Mat & baseImage);
