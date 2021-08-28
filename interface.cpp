@@ -1,6 +1,5 @@
 #include "interface.h"
 
-// Конструктор копирует изображения, с которыми дальше работает класс
 
 Interface::Interface(cv::Mat& fg, cv::Mat& bg){
     if(fg.size[0] > bg.size[0] || fg.size[1] > bg.size[1]){
@@ -13,7 +12,7 @@ Interface::Interface(cv::Mat& fg, cv::Mat& bg){
     dispForeground = fg.clone();
     dispBackground = bg.clone();
     std::cout << "help:" << std::endl
-              << "press s to go to the selection menu, r to bring back all pictures, ESC to exit" << std::endl;
+              << "press s to go to the selection menu, w to write result, r to bring back all pictures and ESC to exit" << std::endl;
     cv::namedWindow("Poisson Blender");
 }
 
@@ -58,8 +57,6 @@ void Interface::showImages(){
     cv::imshow("Poisson Blender", fittedDisp);
 }
 
-// Выводим информацию об используемых клавишах.
-// Показываем изображения, далее дожидаемся нажатия и делаем соответствующую операцию.
 // 114 == r, 97 == a, 100 == d в кодировке ASCII
 
 void Interface::selectPolygon(){
@@ -84,10 +81,7 @@ void Interface::selectPolygon(){
     }
 }
 
-// Производим выбор точки.
-// Вводим координаты, до того момента, пока последняя введенная координата не станет равна первой
-// pointVector.size() > 2 необходим для того, чтобы можно было построить выпуклую оболочку точек
-// Рисуем на маске выпуклую оболочку и при замыкании многоугольника производим пуассоновское клонирование.
+
 
 void Interface::selectPoint(){
     std::cout << "Enter point coordinates: x in (0, " << foreground.size[0] << "), " 
@@ -139,9 +133,6 @@ void Interface::poissonClone(cv::Mat & binaryMask){
     dispBackground = result.clone();
 }
 
-// Собственно говоря, обработчик событий
-// Позволяет переходить в режим выбора маски по нажатию s, возвращать изображения обратно по r, 
-// Записывать результат при нажатии w и выходить по ESC
 // 27 == esc, 115 = s, 114 = r, 119 = w в кодировке ASCII
 
 void Interface::startHandler(){
